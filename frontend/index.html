@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Downloader - Download Instagram & YouTube Content</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>📥 Media Downloader</h1>
+            <p class="subtitle">Download Instagram Reels, Posts & YouTube Videos Easily</p>
+        </header>
+
+        <main class="main-content">
+            <div class="input-section">
+                <form id="downloadForm">
+                    <div class="form-group">
+                        <label for="mediaUrl">Paste Media Link:</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="text" 
+                                id="mediaUrl" 
+                                placeholder="https://www.youtube.com/watch?v=... or https://www.instagram.com/p/..."
+                                required
+                            >
+                            <button type="submit" class="btn-download">Download</button>
+                        </div>
+                        <small class="help-text">Supports: YouTube Videos, YouTube Shorts, Instagram Posts, Instagram Reels</small>
+                    </div>
+                </form>
+            </div>
+
+            <div id="loadingSpinner" class="loading-spinner hidden">
+                <div class="spinner"></div>
+                <p>Processing your request...</p>
+            </div>
+
+            <div id="mediaInfo" class="media-info hidden">
+                <h2>Media Information</h2>
+                <div id="infoContent"></div>
+            </div>
+
+            <div id="downloadOptions" class="download-options hidden">
+                <h2>Select Quality</h2>
+                <div id="optionsContainer"></div>
+            </div>
+
+            <div id="errorMessage" class="error-message hidden"></div>
+            <div id="successMessage" class="success-message hidden"></div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2025 Media Downloader. Download responsibly. Respect copyright.</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

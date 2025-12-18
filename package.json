@@ -1,0 +1,25 @@
+{
+  "name": "media-downloader",
+  "version": "1.0.0",
+  "description": "Download Instagram Reels, Posts, YouTube Videos and Shorts",
+  "main": "backend/app.py",
+  "scripts": {
+    "start:backend": "cd backend && python app.py",
+    "start:frontend": "cd frontend && python -m http.server 8000",
+    "install:backend": "cd backend && pip install -r requirements.txt"
+  },
+  "keywords": [
+    "youtube",
+    "instagram",
+    "downloader",
+    "video",
+    "reel",
+    "shorts"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/video-downloder.git"
+  }
+}
