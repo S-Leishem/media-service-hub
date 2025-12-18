@@ -175,6 +175,5 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Production server for Render
-    port = int(os.environ.get('PORT', 10000))  # Render uses PORT env var
+    port = int(os.environ.get('PORT', 10000))
     app.run(debug=False, host='0.0.0.0', port=port)
