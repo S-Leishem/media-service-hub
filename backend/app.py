@@ -1,178 +1,168 @@
+import yt_dlp
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-import yt_dlp
 import os
-import json
-from pathlib import Path
-from urllib.parse import urlparse
 import logging
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import tempfile
 
 app = Flask(__name__)
 CORS(app)
 
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({
-        'message': 'Media Downloader API',
-        'version': '1.0.0',
-        'endpoints': {
-            'info': '/api/info',
-            'download': '/api/download',
-            'health': '/health'
-        }
-    }), 200
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({'status': 'ok'}), 200
+DOWNLOAD_FOLDER = 'downloads'
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-# Create downloads folder
-DOWNLOAD_FOLDER = Path('downloads')
-DOWNLOAD_FOLDER.mkdir(exist_ok=True)
-
-def get_media_info(url):
-    """
-    Fetch media information from the URL using yt-dlp
-    """
-    ydl_opts = {
+def get_ydl_opts(use_oauth=True):
+    """Enhanced yt-dlp options with multiple bypass methods"""
+    opts = {
+        'format': 'best',
+        'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
         'quiet': False,
         'no_warnings': False,
-        'extract_flat': False,
-    }
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-            # Extract formats
-            formats = []
-            if 'formats' in info:
-                # Group formats by quality
-                seen_resolutions = set()
-                for fmt in info['formats']:
-                    if fmt.get('vcodec') != 'none' or fmt.get('acodec') != 'none':
-                        resolution = fmt.get('format_note', 'Unknown')
-                        if resolution not in seen_resolutions:
-                            seen_resolutions.add(resolution)
-                            formats.append({
-                                'format_id': fmt['format_id'],
-                                'quality': resolution,
-                                'resolution': f"{fmt.get('width', 0)}x{fmt.get('height', 0)}" if fmt.get('height') else 'Unknown',
-                                'format': fmt.get('ext', 'mp4'),
-                                'filesize': fmt.get('filesize', 'Unknown')
-                            })
-            
-            # Get platform
-            platform = 'Unknown'
-            if 'youtube.com' in url or 'youtu.be' in url:
-                platform = 'YouTube'
-            elif 'instagram.com' in url:
-                platform = 'Instagram'
-            
-            return {
-                'url': url,
-                'title': info.get('title', 'Unknown'),
-                'duration': info.get('duration', 0),
-                'upload_date': info.get('upload_date', 'Unknown'),
-                'thumbnail': info.get('thumbnail'),
-                'platform': platform,
-                'formats': formats[:10],  # Limit to top 10 formats
-                'ext': info.get('ext', 'mp4')
+        'ignoreerrors': False,
+        # Use mobile client to bypass restrictions
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web'],
+                'player_skip': ['webpage', 'configs'],
+                'skip': ['hls', 'dash']
             }
-    
-    except Exception as e:
-        logger.error(f"Error getting media info: {str(e)}")
-        raise Exception(f"Failed to fetch media information: {str(e)}")
-
-def download_media(url, format_id=None):
-    """
-    Download media from the URL
-    """
-    ydl_opts = {
-        'format': format_id or 'best',
-        'outtmpl': str(DOWNLOAD_FOLDER / '%(title)s.%(ext)s'),
-        'quiet': False,
-        'no_warnings': False,
-        'socket_timeout': 30,
+        },
+        'http_headers': {
+            'User-Agent': 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
     }
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            return filename
+    # Try OAuth2 authentication if available
+    if use_oauth and os.environ.get('YOUTUBE_OAUTH'):
+        opts['username'] = 'oauth2'
+        opts['password'] = ''
     
-    except Exception as e:
-        logger.error(f"Error downloading media: {str(e)}")
-        raise Exception(f"Failed to download media: {str(e)}")
+    return opts
 
 @app.route('/api/info', methods=['POST'])
 def get_info():
-    """
-    API endpoint to get media information
-    """
     try:
-        data = request.get_json()
+        data = request.json
         url = data.get('url')
         
         if not url:
             return jsonify({'error': 'URL is required'}), 400
         
-        # Validate URL
-        try:
-            urlparse(url)
-        except:
-            return jsonify({'error': 'Invalid URL format'}), 400
+        logger.info(f"Fetching info for URL: {url}")
         
-        # Check if it's a supported platform
-        if not ('youtube.com' in url or 'youtu.be' in url or 'instagram.com' in url):
-            return jsonify({'error': 'Unsupported platform. Please use YouTube or Instagram'}), 400
+        # Try different extraction methods
+        methods = [
+            {'use_oauth': True},
+            {'use_oauth': False}
+        ]
         
-        info = get_media_info(url)
-        return jsonify(info), 200
-    
+        last_error = None
+        for method in methods:
+            try:
+                ydl_opts = get_ydl_opts(**method)
+                ydl_opts['quiet'] = True
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    
+                    response_data = {
+                        'title': info.get('title'),
+                        'thumbnail': info.get('thumbnail'),
+                        'duration': info.get('duration'),
+                        'uploader': info.get('uploader'),
+                        'formats': []
+                    }
+                    
+                    if 'formats' in info:
+                        seen_formats = set()
+                        for fmt in info['formats']:
+                            format_key = f"{fmt.get('format_id')}_{fmt.get('ext')}"
+                            if format_key not in seen_formats:
+                                format_info = {
+                                    'format_id': fmt.get('format_id'),
+                                    'ext': fmt.get('ext'),
+                                    'quality': fmt.get('format_note', 'Unknown'),
+                                    'filesize': fmt.get('filesize'),
+                                    'resolution': fmt.get('resolution')
+                                }
+                                response_data['formats'].append(format_info)
+                                seen_formats.add(format_key)
+                    
+                    return jsonify(response_data)
+                    
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Method {method} failed: {last_error}")
+                continue
+        
+        # If all methods fail
+        return jsonify({'error': f'All extraction methods failed. Last error: {last_error}'}), 500
+            
     except Exception as e:
-        logger.error(f"Error in /api/info: {str(e)}")
-        return jsonify({'error': str(e)}), 400
+        logger.error(f"Error fetching info: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/download', methods=['POST'])
 def download():
-    """
-    API endpoint to download media
-    """
     try:
-        data = request.get_json()
+        data = request.json
         url = data.get('url')
         format_id = data.get('format_id', 'best')
         
         if not url:
             return jsonify({'error': 'URL is required'}), 400
         
-        # Download the media
-        filepath = download_media(url, format_id)
+        logger.info(f"Downloading URL: {url} with format: {format_id}")
         
-        # Send file to user
-        return send_file(
-            filepath,
-            as_attachment=True,
-            download_name=Path(filepath).name
-        )
-    
+        methods = [
+            {'use_oauth': True},
+            {'use_oauth': False}
+        ]
+        
+        last_error = None
+        for method in methods:
+            try:
+                ydl_opts = get_ydl_opts(**method)
+                if format_id != 'best':
+                    ydl_opts['format'] = format_id
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    filename = ydl.prepare_filename(info)
+                    
+                    if os.path.exists(filename):
+                        logger.info(f"Download completed: {filename}")
+                        response = send_file(filename, as_attachment=True)
+                        # Clean up after sending
+                        try:
+                            os.remove(filename)
+                        except:
+                            pass
+                        return response
+                        
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Download method {method} failed: {last_error}")
+                continue
+        
+        return jsonify({'error': f'Download failed. Last error: {last_error}'}), 500
+                
     except Exception as e:
-        logger.error(f"Error in /api/download: {str(e)}")
-        return jsonify({'error': str(e)}), 400
+        logger.error(f"Download error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({'error': 'Endpoint not found'}), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    return jsonify({'error': 'Internal server error'}), 500
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'healthy', 'message': 'Media Downloader API', 'version': '1.0.0'})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
